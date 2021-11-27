@@ -1172,6 +1172,24 @@ VkResult DispatchBeginCommandBuffer(VkCommandBuffer commandBuffer, const VkComma
     VkResult result = layer_data->device_dispatch_table.BeginCommandBuffer(commandBuffer, (const VkCommandBufferBeginInfo*)local_pBeginInfo);
     return result;
 }
+
+void DispatchDestroyPipeline(
+    VkDevice                                    device,
+    VkPipeline                                  pipeline,
+    const VkAllocationCallbacks*                pAllocator)
+{
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    if (!wrap_handles) return layer_data->device_dispatch_table.DestroyPipeline(device, pipeline, pAllocator);
+    uint64_t pipeline_id = reinterpret_cast<uint64_t &>(pipeline);
+    layer_data->DestroyLocalRayTracingPipelineCreateInfos(pipeline_id);
+    auto iter = unique_id_mapping.pop(pipeline_id);
+    if (iter != unique_id_mapping.end()) {
+        pipeline = (VkPipeline)iter->second;
+    } else {
+        pipeline = (VkPipeline)0;
+    }
+    layer_data->device_dispatch_table.DestroyPipeline(device, pipeline, pAllocator);
+}
 """
     # Separate generated text for source and headers
     ALL_SECTIONS = ['source_file', 'header_file']
@@ -1212,6 +1230,7 @@ VkResult DispatchBeginCommandBuffer(VkCommandBuffer commandBuffer, const VkComma
             'vkCreateRenderPass2KHR',
             'vkCreateRenderPass2',
             'vkDestroyRenderPass',
+            'vkDestroyPipeline',
             'vkSetDebugUtilsObjectNameEXT',
             'vkSetDebugUtilsObjectTagEXT',
             'vkGetPhysicalDeviceDisplayPropertiesKHR',
@@ -1980,7 +1999,27 @@ VkResult DispatchBeginCommandBuffer(VkCommandBuffer commandBuffer, const VkComma
                 copy_feedback_source += '        }\n'
                 copy_feedback_source += '    }\n'
                 self.appendSection('source_file', copy_feedback_source)
-            self.appendSection('source_file', "\n".join(str(api_post).rstrip().split("\n")))
+            if ('CreateRayTracingPipelinesKHR' in cmdname):
+                ray_tracing_source    = '    if (deferredOperation) { \n'
+                ray_tracing_source   += '       for (uint32_t i = 0; i < createInfoCount; ++i) { \n'
+                ray_tracing_source   += '           uint64_t pipeline_id = reinterpret_cast<uint64_t&>(pPipelines[i]); \n'
+                ray_tracing_source   += '           layer_data->SaveLocalRayTracingPipelineCreateInfos(pipeline_id, &local_pCreateInfos[i]); \n'
+                ray_tracing_source   += '       }\n'
+                ray_tracing_source   += '    } else if (local_pCreateInfos) {\n'
+                ray_tracing_source   += '       delete[] local_pCreateInfos;\n'
+                ray_tracing_source   += '    }\n'
+                ray_tracing_source   += '    {\n'
+                ray_tracing_source   += '       for (uint32_t index0 = 0; index0 < createInfoCount; index0++) {\n'
+                ray_tracing_source   += '           if ((pPipelines[index0] != VK_NULL_HANDLE) && !deferredOperation) {\n'
+                ray_tracing_source   += '               // The pipeline value is non-deterministic and unreadable until the deferred operation completes.\n'
+                ray_tracing_source   += '               pPipelines[index0] = layer_data->WrapNew(pPipelines[index0]);\n'
+                ray_tracing_source   += '           }\n'
+                ray_tracing_source   += '       }\n'
+                ray_tracing_source   += '    }\n'
+                self.appendSection('source_file', ray_tracing_source)
+            else:
+                self.appendSection('source_file', "\n".join(str(api_post).rstrip().split("\n")))
+            
             # Handle the return result variable, if any
             if (resulttype is not None):
                 self.appendSection('source_file', '    return result;')

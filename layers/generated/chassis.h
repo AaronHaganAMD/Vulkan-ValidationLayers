@@ -3318,6 +3318,8 @@ class ValidationObject {
         std::vector<ValidationObject*> object_dispatch;
         LayerObjectTypeId container_type;
 
+        std::map<uint64_t, safe_VkRayTracingPipelineCreateInfoKHR*> ray_tracing_pipeline_create_infos;
+
         std::string layer_name = "CHASSIS";
 
         // Constructor
@@ -3333,6 +3335,17 @@ class ValidationObject {
         }
         virtual WriteLockGuard WriteLock() {
             return WriteLockGuard(validation_object_mutex);
+        }
+
+        void SaveLocalRayTracingPipelineCreateInfos(uint64_t pipeline_id, safe_VkRayTracingPipelineCreateInfoKHR* p_ray_tracing_create_info) {
+            ray_tracing_pipeline_create_infos[pipeline_id] = p_ray_tracing_create_info;
+        }
+
+        void DestroyLocalRayTracingPipelineCreateInfos(uint64_t pipeline_id) {
+            auto itr = ray_tracing_pipeline_create_infos.find(pipeline_id);
+            if (itr != ray_tracing_pipeline_create_infos.end()) {
+                ray_tracing_pipeline_create_infos.erase(itr);
+            }
         }
 
         void RegisterValidationObject(bool vo_enabled, uint32_t instance_api_version,
